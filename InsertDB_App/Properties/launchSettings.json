@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "InsertDB_App": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
