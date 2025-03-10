@@ -17,6 +17,7 @@ namespace InsertDB_App
         /// </summary>
         static public DataBase staticDataBase;
         MySqlConnection connection;
+        static private object _lock = new object();
         private string _server = "hy.shogle.net", _port = "3306", _dbName="PaintFlowDB", _dbId = "root", _dbPw="9671";
         // 생성자 -> DB Connect
         private DataBase()
@@ -41,7 +42,7 @@ namespace InsertDB_App
             return staticDataBase;
         }
         // 알람 데이터 bulk insert
-        public async Task AlarmBulkToMySQL(List<string[]> arr)
+        public void AlarmBulkToMySQL(List<string[]> arr)
         {
             // buffer 데이터를 받아와서 정리 후 삽입하는 기능
             StringBuilder sCommand = new StringBuilder("INSERT INTO alarm (time, sensor, data, message) VALUES ");
@@ -56,10 +57,13 @@ namespace InsertDB_App
                 }
                 sCommand.Append(string.Join(",", Rows));
                 sCommand.Append(";");
-                using (MySqlCommand myCmd = new MySqlCommand(sCommand.ToString(), connection))
+                lock (_lock)
                 {
-                    myCmd.CommandType = CommandType.Text;
-                    myCmd.ExecuteNonQuery();
+                    using (MySqlCommand myCmd = new MySqlCommand(sCommand.ToString(), connection))
+                    {
+                        myCmd.CommandType = CommandType.Text;
+                        myCmd.ExecuteNonQuery();
+                    }
                 }
             }
             catch (Exception e)
@@ -67,7 +71,7 @@ namespace InsertDB_App
                 Console.WriteLine($"{e.ToString()}");
             }
         }
-        public async Task SensorBulkToMySQL(List<string[]> arr)
+        public void SensorBulkToMySQL(List<string[]> arr)
         {
             // buffer 데이터를 받아와서 정리 후 삽입하는 기능
             StringBuilder sCommandelectro = new StringBuilder("INSERT INTO electroDeposition (time, waterLevel, viscosity, ph, current, voltage) VALUES ");
@@ -103,27 +107,23 @@ namespace InsertDB_App
 
                 sCommandpaint.Append(string.Join(",", Rowspaint));
                 sCommandpaint.Append(";");
-                
-                using (MySqlCommand myCmd = new MySqlCommand(sCommandelectro.ToString(), connection))
+                lock (_lock)
                 {
-                    //Console.WriteLine("---------------------electro");
-                    //Console.WriteLine(sCommandelectro.ToString());
-                    myCmd.CommandType = CommandType.Text;
-                    myCmd.ExecuteNonQuery();
-                }
-                using (MySqlCommand myCmd = new MySqlCommand(sCommandDry.ToString(), connection))
-                {
-                    //Console.WriteLine("---------------------dry");
-                    //Console.WriteLine(sCommandDry.ToString());
-                    myCmd.CommandType = CommandType.Text;
-                    myCmd.ExecuteNonQuery();
-                }
-                using (MySqlCommand myCmd = new MySqlCommand(sCommandpaint.ToString(), connection))
-                {
-                    //Console.WriteLine("---------------------paint");
-                    //Console.WriteLine(sCommandpaint.ToString());
-                    myCmd.CommandType = CommandType.Text;
-                    myCmd.ExecuteNonQuery();
+                    using (MySqlCommand myCmd = new MySqlCommand(sCommandelectro.ToString(), connection))
+                    {
+                        myCmd.CommandType = CommandType.Text;
+                        myCmd.ExecuteNonQuery();
+                    }
+                    using (MySqlCommand myCmd = new MySqlCommand(sCommandDry.ToString(), connection))
+                    {
+                        myCmd.CommandType = CommandType.Text;
+                        myCmd.ExecuteNonQuery();
+                    }
+                    using (MySqlCommand myCmd = new MySqlCommand(sCommandpaint.ToString(), connection))
+                    {
+                        myCmd.CommandType = CommandType.Text;
+                        myCmd.ExecuteNonQuery();
+                    }
                 }
             }
             catch (Exception e)

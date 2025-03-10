@@ -17,27 +17,32 @@ namespace saveDB
     public class rabbitMQ 
     {
         // 각 스레드로 구현
-        DataBase DB = DataBase.Instance(); // DB 연결
-        private static ThreadLocal<List<string[]>> tlv = new ThreadLocal<List<string[]>>(() => new List<string[]>()); // 스레드 로컬 변수 선언
-        private static Timer timer; // 스레드 타이머 선언
         ConnectionFactory factory;
         IConnection connection;
         IChannel channel;
-
+        private List<string[]> _arr;
+        private readonly object _lock = new object();
+        private string _exchange = "";
+        public rabbitMQ(string name)
+        {
+            this._exchange = name;
+            _arr = new List<string[]>();
+        }
+        // 캐시, 3분 동안 동일 알람 받지 않기로 하기 기능 추가
         private static MemoryCache _cache = MemoryCache.Default;
-        public async void ReadRabbit(object exchangeName)
+        public async void ReadRabbit()
         {
             // 구독 스레드 만들기
             try
             {
                 // exchange 구독
+                await this.RabbitmqConnect();
+                
                 QueueDeclareOk queueDeclareResult = await this.channel.QueueDeclareAsync();
                 string queueName = queueDeclareResult.QueueName;
-                await this.channel.QueueBindAsync(queue: queueName, exchange: (string)exchangeName, routingKey: string.Empty);
+                await this.channel.QueueBindAsync(queue: queueName, exchange: _exchange, routingKey: string.Empty);
                 var consumer = new AsyncEventingBasicConsumer(this.channel);
-
-                List<string[]> arr = tlv.Value; // 스레드 변수 할당
-                timer = new Timer(saveDBAndClearDict, arr, 0, 300000); // 스레드 타이머 생성 5 분
+                // 따로 스레드를 만들기 때문에 성립되지 않았던 것..
                 
                 consumer.ReceivedAsync += (model, ea) =>
                 {
@@ -45,21 +50,25 @@ namespace saveDB
                     var message = Encoding.UTF8.GetString(body);
                     string[] tmp = message.Split(", ");
                     //arr.Add(tmp); // 무지성 추가 x
-
-                    if((string)exchangeName == "alarm")
+                    
+                    if(_exchange == "alarm")
                     {
                         string cacheKey = $"alarm: {tmp[1]}:{tmp[4]}";
                         if (!_cache.Contains(cacheKey))
                         {
-                            //Console.WriteLine($" [x] {cacheKey}");
-                            _cache.Add(cacheKey, true, DateTimeOffset.Now.AddMinutes(3));
-                            arr.Add(tmp);
+                            lock (_lock){
+                                _cache.Add(cacheKey, true, DateTimeOffset.Now.AddMinutes(3));
+                                _arr.Add(tmp);
+                            }
                         }
                     }
                     else
                     {
+                        lock (_lock)
+                        {
+                            _arr.Add(tmp); // 모든 센서 데이터는 저장을 지속한다.
+                        }
                         Console.WriteLine($"[x] : {message}");
-                        arr.Add(tmp); // 모든 센서 데이터는 저장을 지속한다.
                     }
                     return Task.CompletedTask;
                 };
@@ -69,23 +78,16 @@ namespace saveDB
             {
                 Console.WriteLine($"{e.ToString()}");
             }
-
-        }
-        // callback 함수는 obj가 필요함
-        // timer로 5분에 한 번 수행할 콜백함수 선언
-        private async void saveDBAndClearDict(object obj)
-        {
-            // Bulk insert 
-            Console.WriteLine("save!");
-            List<string[]> bufferOBJ = ((List<string[]>)obj);
             
-            // 어떤 데이터인지에 따라서 처리 프로세스가 다름
-            if (bufferOBJ.Count > 0 && bufferOBJ[0].Length == 5)
-                await DB.AlarmBulkToMySQL(bufferOBJ);
-            else if(bufferOBJ.Count > 0 && bufferOBJ[0].Length == 10)
-                await DB.SensorBulkToMySQL(bufferOBJ);
-
-            ((List<string[]>)obj).Clear(); //obj로 처리하면 됨
+        }
+        public List<string[]> GetAndClearData()
+        {
+            lock (_lock)
+            {
+                List<string[]> copy = new List<string[]>(_arr);
+                _arr.Clear();
+                return copy;
+            }
         }
         public async Task RabbitmqConnect() // rabbit mq 서버 커넥트
         {
